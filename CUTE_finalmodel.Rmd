@@ -1,0 +1,174 @@
+---
+title: "CUTE_finalmodel"
+author: "sudha"
+date: "19 August 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+# Clear your environment variable
+rm(list=ls(all=TRUE))
+```
+
+```{r}
+# Set the directory Path
+
+setwd("G:/SanjeevaReddy/Cute01/Problem4/HAR_Dataset")
+```
+
+```{r}
+library(devtools)
+library(ggbiplot)
+library(nnet)
+library(caret)
+library(glmnet)
+library(e1071)
+library(factoextra)
+```
+
+```{r}
+# Read the training data and test data
+train_sensor = read.csv(file = "train.csv", header = T)
+test_sensor = read.csv(file = "test.csv", header = T)
+```
+
+```{r}
+# Understanding the data
+dim(train_sensor)
+sum(is.na(train_sensor))
+names(train_sensor)
+str(train_sensor)
+summary(train_sensor)
+```
+
+```{r}
+
+## Understanding the dependent variable 
+summary(train_sensor$Activity)
+(train_sensor$Activity)
+```
+
+```{r}
+#removing attribute subject as it doesnot explain much
+train_sensor=train_sensor[-562]
+test_sensor=test_sensor[-562]
+
+```
+
+```{r}
+# Building Model
+# Compute PCA on training data set
+##The prcomp function returns an object of class prcomp, which have some methods available
+#prncomp performs a principal components analysis on a given numeric data matrix
+#It also gives a summary of percentage of variance explained by each Principal Component
+pca_output <- prcomp(train_sensor[!(names(train_sensor) %in% c("Activity"))],center = T, scale. = T)
+summary(pca_output)
+plot(pca_output)
+screeplot(pca_output, type = "lines")
+sensor_train_pca_data = data.frame(pca_output$x[,1:24] , Activity = train_sensor$Activity)
+names(sensor_train_pca_data)
+```
+
+```{r}
+# Plotting the Principal components.
+plot(sensor_train_pca_data$PC1, sensor_train_pca_data$PC2, col = sensor_train_pca_data$Activity, xlab = "Principal Component 1", ylab = "Principal Component 2",  main = "Sensor data after PCA")
+
+## Plotting the sensordata on two principal components axis. 
+g = ggbiplot(pca_output, obs.scale = 1, var.scale = 1,groups = sensor_train_pca_data$Activity, ellipse = TRUE, circle = T) 
+g  + scale_color_discrete(name = '')
+
+
+```
+
+```{r}
+# Building Multinom model
+multinom_model = multinom(Activity ~ ., data = sensor_train_pca_data)
+summary(multinom_model)
+```
+
+```{r}
+# Predicting the train
+predict_multinom_model = predict(multinom_model,newdata = sensor_train_pca_data)
+confusionMatrix(predict_multinom_model, sensor_train_pca_data$Activity)
+
+```
+
+```{r}
+# Predicting on test data
+## Converted the test data into the pca component
+sensor_test_pca_data <- as.data.frame(predict(pca_output, test_sensor[, !(names(test_sensor) %in% c("Activity"))]))
+```
+
+```{r}
+#predicting based in multinomial model
+pred = predict(multinom_model,newdata = sensor_test_pca_data)
+confusionMatrix(pred, test_sensor$Activity)
+```
+
+```{r}
+# Alternative model
+
+nb_model <- naiveBayes(Activity~.,data = sensor_train_pca_data)
+nb_model
+```
+
+```{r}
+#predicting on train data
+nb_train_predict <- predict(nb_model, sensor_train_pca_data[,!(names(sensor_train_pca_data) %in% c("Activity"))])
+confusionMatrix( data = nb_train_predict, reference = sensor_train_pca_data$Activity)
+
+```
+
+```{r}
+#predicting on test data
+nb_test_predict <- predict(nb_model, sensor_test_pca_data)
+confMatrix_auto = confusionMatrix( data = nb_test_predict, reference = test_sensor$Activity)
+print(confMatrix_auto)
+
+
+```
+
+```{r}
+## Building a model with Regularization technique
+train_sensor_wo_target = as.matrix(train_sensor[-length(train_sensor)])
+train_sensor_target = as.matrix(train_sensor[length(train_sensor)])
+```
+
+```{r}
+model_glmnet = glmnet(train_sensor_wo_target, train_sensor_target, family = "multinomial", alpha = 1, type.multinomial = "grouped")
+print(model_glmnet)
+```
+
+```{r}
+plot(model_glmnet)
+attributes(model_glmnet)
+min(model_glmnet$lambda)
+```
+
+```{r}
+pred_obj_glmnet_train = data.frame(predict(model_glmnet, newx = train_sensor_wo_target, type = "response", s = min(model_glmnet$lambda)))
+names(pred_obj_glmnet_train) = names(table(train_sensor$Activity))
+pred_values_train = colnames(pred_obj_glmnet_train)[apply(pred_obj_glmnet_train,1,function(x) which(x==max(x)))]
+```
+
+```{r}
+
+#Predicting on Test Data
+
+test_sensor_wo_target = as.matrix(test_sensor[-length(test_sensor)])
+test_sensor_target = as.matrix(test_sensor[length(test_sensor)])
+
+pred_obj_glmnet = data.frame(predict(model_glmnet, newx = test_sensor_wo_target, type = "response", s = min(model_glmnet$lambda)))
+```
+
+```{r}
+plot(model_glmnet, xvar = "dev", label = TRUE)
+names(pred_obj_glmnet) = names(table(test_sensor$Activity))
+pred_values=colnames(pred_obj_glmnet)[apply(pred_obj_glmnet,1,function(x) which(x==max(x)))]
+confusionMatrix(pred_values,test_sensor_target)
+```
+
+
